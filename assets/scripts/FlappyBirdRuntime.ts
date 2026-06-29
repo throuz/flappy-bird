@@ -6,6 +6,7 @@ import {
   EventKeyboard,
   EventMouse,
   EventTouch,
+  instantiate,
   input,
   Input,
   KeyCode,
@@ -31,16 +32,10 @@ type PipePair = {
 };
 
 type GameSprites = {
-  sky: SpriteFrame;
-  ground: SpriteFrame;
-  pipe: SpriteFrame;
   birdFrames: SpriteFrame[];
 };
 
 const SPRITE_PATHS = {
-  sky: "sprites/background/sky/spriteFrame",
-  ground: "sprites/ground/ground/spriteFrame",
-  pipe: "sprites/pipes/pipe/spriteFrame",
   birdUp: "sprites/bird/bird_up/spriteFrame",
   birdMid: "sprites/bird/bird_mid/spriteFrame",
   birdDown: "sprites/bird/bird_down/spriteFrame",
@@ -62,8 +57,9 @@ class FlappyBirdController extends Component {
   private canvasTransform!: UITransform;
   private sprites: GameSprites | null = null;
 
-  private worldNode!: Node;
+  private rootNode!: Node;
   private pipeLayer!: Node;
+  private previewPipePair!: Node;
   private bird!: Node;
   private birdSprite!: Sprite;
   private scoreLabel!: Label;
@@ -72,7 +68,6 @@ class FlappyBirdController extends Component {
   private gameOverLabel!: Label;
   private groundA!: Node;
   private groundB!: Node;
-  private loadingLabel!: Label;
 
   private pipePairs: PipePair[] = [];
   private velocityY = 0;
@@ -87,8 +82,8 @@ class FlappyBirdController extends Component {
 
   onLoad() {
     this.canvasTransform = this.node.parent!.getComponent(UITransform)!;
-    this.createLoadingLabel();
     this.bindInput();
+    this.cacheSceneNodes();
     this.preloadAssets();
   }
 
@@ -139,38 +134,20 @@ class FlappyBirdController extends Component {
     this.bird.angle = Math.max(-90, this.bird.angle - 180 * dt);
   }
 
-  private createLoadingLabel() {
-    const labelNode = this.createNode("Loading", this.node, 0, 0, 50, 480, 64);
-    this.loadingLabel = labelNode.addComponent(Label);
-    this.loadingLabel.string = "Loading assets...";
-    this.loadingLabel.fontSize = 28;
-    this.loadingLabel.lineHeight = 34;
-    this.loadingLabel.horizontalAlign = Label.HorizontalAlign.CENTER;
-  }
-
   private async preloadAssets() {
     try {
-      const [sky, ground, pipe, birdUp, birdMid, birdDown] = await Promise.all([
-        this.loadSpriteFrame(SPRITE_PATHS.sky),
-        this.loadSpriteFrame(SPRITE_PATHS.ground),
-        this.loadSpriteFrame(SPRITE_PATHS.pipe),
+      const [birdUp, birdMid, birdDown] = await Promise.all([
         this.loadSpriteFrame(SPRITE_PATHS.birdUp),
         this.loadSpriteFrame(SPRITE_PATHS.birdMid),
         this.loadSpriteFrame(SPRITE_PATHS.birdDown),
       ]);
 
       this.sprites = {
-        sky,
-        ground,
-        pipe,
         birdFrames: [birdUp, birdMid, birdDown, birdMid],
       };
 
-      this.loadingLabel.node.destroy();
-      this.buildScene();
       this.resetGame();
     } catch (error) {
-      this.loadingLabel.string = "Asset load failed";
       console.error(error);
     }
   }
@@ -233,40 +210,25 @@ class FlappyBirdController extends Component {
     this.birdSprite.spriteFrame = this.sprites.birdFrames[this.birdFrameIndex];
   }
 
-  private buildScene() {
-    const sprites = this.sprites!;
-    this.worldNode = this.createNode("World", this.node, 0, 0, 0, this.canvasTransform.width, this.canvasTransform.height);
-
-    const sky = this.createSpriteNode("Sky", this.worldNode, 0, 0, -30, this.canvasTransform.width, this.canvasTransform.height, sprites.sky);
-    sky.getComponent(Sprite)!.sizeMode = Sprite.SizeMode.CUSTOM;
-
-    this.pipeLayer = this.createNode("Pipes", this.worldNode, 0, 0, 5, this.canvasTransform.width, this.canvasTransform.height);
-    this.createBird();
-    this.createGround();
-    this.createHud();
-  }
-
-  private createBird() {
-    const sprites = this.sprites!;
-    this.bird = this.createSpriteNode("Bird", this.worldNode, -220, 40, 20, 96, 72, sprites.birdFrames[1]);
-    this.birdSprite = this.bird.getComponent(Sprite)!;
-    this.birdSprite.sizeMode = Sprite.SizeMode.CUSTOM;
-  }
-
-  private createGround() {
-    const sprites = this.sprites!;
-    this.groundA = this.createSpriteNode("GroundA", this.worldNode, 0, this.getFloorY(), 30, 1024, this.groundHeight, sprites.ground);
-    this.groundB = this.createSpriteNode("GroundB", this.worldNode, 1024, this.getFloorY(), 30, 1024, this.groundHeight, sprites.ground);
-  }
-
-  private createHud() {
-    this.scoreLabel = this.createLabel("Score", this.worldNode, 0, this.canvasTransform.height / 2 - 58, 60, 48);
-    this.titleLabel = this.createLabel("Title", this.worldNode, 0, 120, 54, 60);
-    this.hintLabel = this.createLabel("Hint", this.worldNode, 0, 60, 24, 34);
-    this.gameOverLabel = this.createLabel("GameOver", this.worldNode, 0, -32, 30, 40);
+  private cacheSceneNodes() {
+    this.rootNode = this.requireNode(this.node.parent!, "GameRoot");
+    this.pipeLayer = this.requireNode(this.rootNode, "PipeLayer");
+    this.previewPipePair = this.requireNode(this.pipeLayer, "PreviewPipePair");
+    this.bird = this.requireNode(this.rootNode, "Bird");
+    this.birdSprite = this.requireSprite(this.bird);
+    this.groundA = this.requireNode(this.rootNode, "GroundA");
+    this.groundB = this.requireNode(this.rootNode, "GroundB");
+    this.scoreLabel = this.requireLabel(this.rootNode, "ScoreLabel");
+    this.titleLabel = this.requireLabel(this.rootNode, "TitleLabel");
+    this.hintLabel = this.requireLabel(this.rootNode, "HintLabel");
+    this.gameOverLabel = this.requireLabel(this.rootNode, "GameOverLabel");
   }
 
   private resetGame() {
+    if (!this.sprites) {
+      return;
+    }
+
     this.started = false;
     this.gameOver = false;
     this.velocityY = 0;
@@ -279,6 +241,7 @@ class FlappyBirdController extends Component {
     this.titleLabel.string = "Flappy Bird";
     this.hintLabel.string = "Tap, click, or press Space to fly";
     this.gameOverLabel.string = "";
+    this.previewPipePair.active = true;
 
     for (const pipe of this.pipePairs) {
       pipe.root.destroy();
@@ -295,33 +258,25 @@ class FlappyBirdController extends Component {
     this.groundB.setPosition(1024, this.getFloorY());
   }
 
-  private createLabel(name: string, parent: Node, x: number, y: number, fontSize: number, lineHeight: number) {
-    const node = this.createNode(name, parent, x, y, 40, 720, 88);
-    const label = node.addComponent(Label);
-    label.fontSize = fontSize;
-    label.lineHeight = lineHeight;
-    label.horizontalAlign = Label.HorizontalAlign.CENTER;
-    label.color.fromHEX("#FFFFFF");
-    label.enableOutline = true;
-    label.outlineWidth = 4;
-    label.overflow = Label.Overflow.SHRINK;
-    return label;
-  }
-
   private spawnPipePair() {
-    const sprites = this.sprites!;
+    this.previewPipePair.active = false;
     const width = this.canvasTransform.width;
     const playableHeight = this.canvasTransform.height - this.groundHeight - 120;
     const minCenter = this.getFloorY() + 120 + this.pipeGap / 2;
     const maxCenter = minCenter + playableHeight - this.pipeGap;
     const centerY = minCenter + Math.random() * Math.max(24, maxCenter - minCenter);
 
-    const root = this.createNode("PipePair", this.pipeLayer, width / 2 + 120, 0, 10, this.pipeWidth, this.canvasTransform.height);
-    const top = this.createSpriteNode("TopPipe", root, 0, centerY + this.pipeGap / 2, 0, this.pipeWidth, this.pipeHeight, sprites.pipe);
+    const root = instantiate(this.previewPipePair);
+    root.name = "PipePair";
+    root.active = true;
+    root.setParent(this.pipeLayer);
+    root.setPosition(width / 2 + 120, 0, 0);
+
+    const top = this.requireNode(root, "TopPipe");
+    const bottom = this.requireNode(root, "BottomPipe");
     top.angle = 180;
-    const bottom = this.createSpriteNode("BottomPipe", root, 0, centerY - this.pipeGap / 2, 0, this.pipeWidth, this.pipeHeight, sprites.pipe);
-    top.getComponent(Sprite)!.sizeMode = Sprite.SizeMode.CUSTOM;
-    bottom.getComponent(Sprite)!.sizeMode = Sprite.SizeMode.CUSTOM;
+    top.setPosition(0, centerY + this.pipeGap / 2, 0);
+    bottom.setPosition(0, centerY - this.pipeGap / 2, 0);
 
     this.pipePairs.push({
       x: width / 2 + 120,
@@ -427,30 +382,28 @@ class FlappyBirdController extends Component {
     this.gameOverLabel.string = "Tap to restart";
   }
 
-  private createNode(name: string, parent: Node, x: number, y: number, z: number, width: number, height: number) {
-    const node = new Node(name);
-    node.layer = Layers.Enum.UI_2D;
-    node.setParent(parent);
-    node.setPosition(x, y, z);
-    node.addComponent(UITransform).setContentSize(width, height);
+  private requireNode(parent: Node, name: string) {
+    const node = parent.getChildByName(name);
+    if (!node) {
+      throw new Error(`Missing node: ${name}`);
+    }
     return node;
   }
 
-  private createSpriteNode(
-    name: string,
-    parent: Node,
-    x: number,
-    y: number,
-    z: number,
-    width: number,
-    height: number,
-    spriteFrame: SpriteFrame,
-  ) {
-    const node = this.createNode(name, parent, x, y, z, width, height);
-    const sprite = node.addComponent(Sprite);
-    sprite.spriteFrame = spriteFrame;
-    sprite.sizeMode = Sprite.SizeMode.CUSTOM;
-    return node;
+  private requireSprite(node: Node) {
+    const sprite = node.getComponent(Sprite);
+    if (!sprite) {
+      throw new Error(`Missing Sprite on ${node.name}`);
+    }
+    return sprite;
+  }
+
+  private requireLabel(parent: Node, name: string) {
+    const label = this.requireNode(parent, name).getComponent(Label);
+    if (!label) {
+      throw new Error(`Missing Label on ${name}`);
+    }
+    return label;
   }
 
   private getFloorY() {
